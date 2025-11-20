@@ -19,13 +19,14 @@ export default function Admin() {
   
   const [blockData, setBlockData] = useState({
     index: 0,
-    chunkHash: "",
     sensorFingerprint: "",
     prevHash: "0",
     timestamp: new Date().toISOString(),
     signature: "",
     deviceId: "",
   });
+  
+  const [videoChunk, setVideoChunk] = useState<File | null>(null);
 
   const registerDeviceMutation = useMutation({
     mutationFn: async () => {
@@ -53,22 +54,45 @@ export default function Admin() {
 
   const addBlockMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest<Block>("POST", "/api/addBlock", blockData);
+      if (!videoChunk) {
+        throw new Error("Video chunk file is required");
+      }
+      
+      const formData = new FormData();
+      formData.append("videoChunk", videoChunk);
+      formData.append("index", blockData.index.toString());
+      formData.append("sensorFingerprint", blockData.sensorFingerprint);
+      formData.append("prevHash", blockData.prevHash);
+      formData.append("timestamp", blockData.timestamp);
+      formData.append("signature", blockData.signature);
+      formData.append("deviceId", blockData.deviceId);
+      
+      const response = await fetch("/api/addBlock", {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to add block");
+      }
+      
+      return await response.json();
     },
     onSuccess: (data) => {
       toast({
         title: "Block Added",
-        description: `Block #${data.index} added to blockchain`,
+        description: `Block #${data.index} added to blockchain with hash ${data.chunkHash.slice(0, 16)}...`,
       });
       setBlockData({
         index: data.index + 1,
-        chunkHash: "",
         sensorFingerprint: "",
         prevHash: "",
         timestamp: new Date().toISOString(),
         signature: "",
         deviceId: data.deviceId,
       });
+      setVideoChunk(null);
     },
     onError: (error: Error) => {
       toast({
@@ -179,17 +203,20 @@ export default function Admin() {
                 </div>
 
                 <div>
-                  <Label htmlFor="chunkHash" className="text-white mb-2 block">
-                    Chunk Hash
+                  <Label htmlFor="videoChunk" className="text-white mb-2 block">
+                    Video Chunk File
                   </Label>
                   <Input
-                    id="chunkHash"
-                    value={blockData.chunkHash}
-                    onChange={(e) => setBlockData({ ...blockData, chunkHash: e.target.value })}
-                    placeholder="SHA-256 hash of video chunk"
-                    className="bg-white/10 border-white/20 text-white font-mono"
-                    data-testid="input-chunk-hash"
+                    id="videoChunk"
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => setVideoChunk(e.target.files?.[0] || null)}
+                    className="bg-white/10 border-white/20 text-white"
+                    data-testid="input-video-chunk"
                   />
+                  <p className="text-xs text-white/50 mt-1">
+                    {videoChunk ? `Selected: ${videoChunk.name}` : "Hash will be computed server-side"}
+                  </p>
                 </div>
 
                 <div>
@@ -236,7 +263,7 @@ export default function Admin() {
 
                 <Button
                   onClick={() => addBlockMutation.mutate()}
-                  disabled={addBlockMutation.isPending}
+                  disabled={!videoChunk || addBlockMutation.isPending}
                   className="w-full bg-blockchain-green hover:bg-blockchain-green/90 text-blockchain-black"
                   data-testid="button-add-block"
                 >

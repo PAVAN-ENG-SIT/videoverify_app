@@ -59,9 +59,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/addBlock", async (req, res) => {
+  app.post("/api/addBlock", upload.single("videoChunk"), async (req, res) => {
     try {
-      const validatedBlock = insertBlockSchema.parse(req.body);
+      if (!req.file) {
+        return res.status(400).json({ message: "Video chunk file is required" });
+      }
+
+      const { index, sensorFingerprint, prevHash, timestamp, signature, deviceId } = req.body;
+      const parsedIndex = parseInt(index);
+      
+      const computedChunkHash = computeSHA256(req.file.buffer);
+
+      const validatedBlock = insertBlockSchema.parse({
+        index: parsedIndex,
+        chunkHash: computedChunkHash,
+        sensorFingerprint,
+        prevHash,
+        timestamp,
+        signature,
+        deviceId,
+      });
 
       const device = await storage.getDevice(validatedBlock.deviceId);
       if (!device) {
@@ -184,53 +201,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let chainContinuity = true;
       let chainContinuityDetails = "";
       
-      if (metadata.length > blockchain.length) {
-        chainContinuity = false;
-        chainContinuityDetails = `Metadata contains ${metadata.length} blocks but blockchain only has ${blockchain.length}`;
+      if (metadata.length === 0) {
+        chainContinuityDetails = "No metadata blocks to validate";
       } else {
-        for (let i = 0; i < metadata.length; i++) {
-          const metadataBlock = metadata[i];
-          const storedBlock = blockchain[i];
-
+        const sortedMetadata = [...metadata].sort((a, b) => a.index - b.index);
+        
+        for (let i = 0; i < sortedMetadata.length; i++) {
+          const metadataBlock = sortedMetadata[i];
+          const blockIndex = metadataBlock.index;
+          
+          if (blockIndex >= blockchain.length) {
+            chainContinuity = false;
+            chainContinuityDetails = `Block index ${blockIndex} not found in stored blockchain (max index: ${blockchain.length - 1})`;
+            break;
+          }
+          
+          const storedBlock = blockchain[blockIndex];
           if (!storedBlock) {
             chainContinuity = false;
-            chainContinuityDetails = `Block ${i} not found in stored blockchain`;
+            chainContinuityDetails = `Block at index ${blockIndex} missing in canonical chain`;
             break;
           }
 
-          const metadataBlockHash = computeBlockHash({
-            index: metadataBlock.index,
-            chunkHash: metadataBlock.chunkHash,
-            sensorFingerprint: metadataBlock.sensorFingerprint,
-            prevHash: metadataBlock.prevHash,
-            timestamp: metadataBlock.timestamp,
-            deviceId: metadataBlock.deviceId,
-          });
-
-          const storedBlockHash = computeBlockHash({
-            index: storedBlock.index,
-            chunkHash: storedBlock.chunkHash,
-            sensorFingerprint: storedBlock.sensorFingerprint,
-            prevHash: storedBlock.prevHash,
-            timestamp: storedBlock.timestamp,
-            deviceId: storedBlock.deviceId,
-          });
-
-          if (metadataBlockHash !== storedBlockHash) {
+          if (metadataBlock.chunkHash !== storedBlock.chunkHash ||
+              metadataBlock.sensorFingerprint !== storedBlock.sensorFingerprint ||
+              metadataBlock.prevHash !== storedBlock.prevHash ||
+              metadataBlock.timestamp !== storedBlock.timestamp ||
+              metadataBlock.deviceId !== storedBlock.deviceId) {
             chainContinuity = false;
-            chainContinuityDetails = `Block ${i} hash mismatch: metadata ${metadataBlockHash.slice(0, 16)}... vs stored ${storedBlockHash.slice(0, 16)}...`;
+            chainContinuityDetails = `Block #${blockIndex} metadata fields mismatch with stored blockchain`;
             break;
           }
 
-          if (metadataBlock.index !== storedBlock.index) {
+          if (i > 0 && metadataBlock.index !== sortedMetadata[i - 1].index + 1) {
             chainContinuity = false;
-            chainContinuityDetails = `Block ${i} index mismatch: expected ${storedBlock.index}, got ${metadataBlock.index}`;
+            chainContinuityDetails = `Metadata blocks are not contiguous at index ${blockIndex} (previous was ${sortedMetadata[i - 1].index})`;
             break;
+          }
+
+          if (metadataBlock.index === 0) {
+            if (metadataBlock.prevHash !== "0") {
+              chainContinuity = false;
+              chainContinuityDetails = `Genesis block (index 0) prevHash must be "0", got "${metadataBlock.prevHash}"`;
+              break;
+            }
+          } else {
+            const prevStoredBlock = blockchain[metadataBlock.index - 1];
+            if (!prevStoredBlock) {
+              chainContinuity = false;
+              chainContinuityDetails = `Missing canonical predecessor for block #${blockIndex}`;
+              break;
+            }
+            
+            const expectedPrevHash = computeBlockHash({
+              index: prevStoredBlock.index,
+              chunkHash: prevStoredBlock.chunkHash,
+              sensorFingerprint: prevStoredBlock.sensorFingerprint,
+              prevHash: prevStoredBlock.prevHash,
+              timestamp: prevStoredBlock.timestamp,
+              deviceId: prevStoredBlock.deviceId,
+            });
+            
+            if (metadataBlock.prevHash !== expectedPrevHash) {
+              chainContinuity = false;
+              chainContinuityDetails = `Block #${blockIndex} prevHash mismatch: expected ${expectedPrevHash.slice(0, 16)}..., got ${metadataBlock.prevHash.slice(0, 16)}...`;
+              break;
+            }
           }
         }
         
         if (chainContinuity) {
-          chainContinuityDetails = `All ${metadata.length} blocks match stored blockchain`;
+          chainContinuityDetails = `All ${metadata.length} blocks form contiguous chain matching stored blockchain`;
         }
       }
 
