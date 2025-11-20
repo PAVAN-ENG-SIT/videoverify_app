@@ -11,6 +11,11 @@ export default {
         sm: ".1875rem", /* 3px */
       },
       colors: {
+        // Blockchain-specific colors using CSS variables
+        'blockchain-blue': "hsl(var(--blockchain-blue) / <alpha-value>)",
+        'blockchain-green': "hsl(var(--blockchain-green) / <alpha-value>)",
+        'blockchain-red': "hsl(var(--blockchain-red) / <alpha-value>)",
+        'blockchain-black': '#000000',
         // Flat / base colors (regular buttons)
         background: "hsl(var(--background) / <alpha-value>)",
         foreground: "hsl(var(--foreground) / <alpha-value>)",
@@ -83,9 +88,10 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["var(--font-sans)"],
+        sans: ["Inter", "var(--font-sans)"],
         serif: ["var(--font-serif)"],
-        mono: ["var(--font-mono)"],
+        mono: ["JetBrains Mono", "var(--font-mono)"],
+        heading: ["Space Grotesk", "Inter", "sans-serif"],
       },
       keyframes: {
         "accordion-down": {
@@ -96,10 +102,35 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "pulse-glow": {
+          "0%, 100%": { boxShadow: "0 0 5px rgba(57, 255, 20, 0.5)" },
+          "50%": { boxShadow: "0 0 20px rgba(57, 255, 20, 0.8)" },
+        },
+        "pulse-glow-red": {
+          "0%, 100%": { boxShadow: "0 0 5px rgba(255, 0, 0, 0.5)" },
+          "50%": { boxShadow: "0 0 20px rgba(255, 0, 0, 0.8)" },
+        },
+        "draw-line": {
+          from: { strokeDashoffset: "1000" },
+          to: { strokeDashoffset: "0" },
+        },
+        "fade-in": {
+          from: { opacity: "0", transform: "translateY(10px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "block-pulse": {
+          "0%, 100%": { transform: "scale(1)" },
+          "50%": { transform: "scale(1.05)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
+        "pulse-glow-red": "pulse-glow-red 2s ease-in-out infinite",
+        "draw-line": "draw-line 1s ease-in-out forwards",
+        "fade-in": "fade-in 0.5s ease-out forwards",
+        "block-pulse": "block-pulse 2s ease-in-out infinite",
       },
     },
   },
